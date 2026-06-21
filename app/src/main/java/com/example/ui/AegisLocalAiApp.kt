@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -481,6 +483,95 @@ fun ChatHubScreen(viewModel: MainViewModel) {
                     }
                 }
             } else {
+                // --- EDGE COPILOT AGENTS GALLERY (2x2 GRID) ---
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info, 
+                        contentDescription = "Gallery Sparkle", 
+                        tint = CyanPrimary, 
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "EDGE COPILOT SECURE AGENTS GALLERY",
+                        color = CyanPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 1.sp
+                    )
+                }
+
+                // 2x2 grid of responsive custom gallery agent cards
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            GalleryCard(
+                                title = "Code Architect",
+                                subtitle = "Generate, optimize, and audit Kotlin, SQL, Python, or bash commands offline secure.",
+                                icon = Icons.Default.Settings,
+                                gradientColors = listOf(DeepPurpleContainer, Color(0xFF1F1C36)),
+                                onClick = {
+                                    val targetModel = activeModelId ?: models.firstOrNull()?.id ?: "TheBloke/Gemma-2-2B-IT-GGUF"
+                                    viewModel.createAgentChatSession(
+                                        modelId = targetModel,
+                                        agentTitle = "✦ Code Architect Sandbox",
+                                        firstGreeting = "Greetings developer! I am your isolated Code Architect. Let's draft robust algorithms, audit security parameters, or optimize schemas. What shall we design safely on-device today?"
+                                    )
+                                }
+                            )
+                        }
+                        Box(modifier = Modifier.weight(1f)) {
+                            GalleryCard(
+                                title = "Creative Writer",
+                                subtitle = "Draft email templates, compose blogs, formulate slogans, and outline documents privately.",
+                                icon = Icons.Default.Share,
+                                gradientColors = listOf(Color(0xFF5C1B3E), Color(0xFF2C162E)),
+                                onClick = {
+                                    val targetModel = activeModelId ?: models.firstOrNull()?.id ?: "TheBloke/Gemma-2-2B-IT-GGUF"
+                                    viewModel.createAgentChatSession(
+                                        modelId = targetModel,
+                                        agentTitle = "✦ Creative Writer Chamber",
+                                        firstGreeting = "Welcome writer! I am your private brainstorming partner. Share your initial draft outline, or tell me what email, essay, or copy we are fabricating safely under our offline shield."
+                                    )
+                                }
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(6.dp))
+                    
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            GalleryCard(
+                                title = "Accent Coach",
+                                subtitle = "Practice dynamic American speech phonology accuracy and strip regional accent (MTI) habits.",
+                                icon = Icons.Default.Done,
+                                gradientColors = listOf(Color(0xFF163C29), Color(0xFF13231F)),
+                                onClick = {
+                                    viewModel.selectTab(com.example.AegisTab.SPOKEN_PRACTICE)
+                                }
+                            )
+                        }
+                        Box(modifier = Modifier.weight(1f)) {
+                            GalleryCard(
+                                title = "CSV Analytics",
+                                subtitle = "Parse spreadsheets, calculate yield, model rosters, and plot multi-spectral metric dashboards.",
+                                icon = Icons.Default.List,
+                                gradientColors = listOf(Color(0xFF4C3011), Color(0xFF251F14)),
+                                onClick = {
+                                    viewModel.selectTab(com.example.AegisTab.CSV_ANALYTICS)
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
                 // Active Sessions List
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -615,20 +706,7 @@ fun ChatHubScreen(viewModel: MainViewModel) {
             ) {
                 if (messages.isEmpty()) {
                     item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(36.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "STREAMS SECURELY ENCRYPTED\nSend a request to activate model vectors.",
-                                color = MutedSlate,
-                                fontSize = 12.sp,
-                                textAlign = TextAlign.Center,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
+                        EmptySessionPromptGallery(onPromptSelected = { inputText = it })
                     }
                 } else {
                     items(messages) { msg ->
@@ -901,6 +979,206 @@ fun ChatBubble(msg: ChatMessage) {
         }
     }
 }
+
+@Composable
+fun GalleryCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    gradientColors: List<Color>,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(135.dp)
+            .padding(4.dp)
+            .border(
+                BorderStroke(1.dp, SophisticatedOutline), 
+                RoundedCornerShape(12.dp)
+            ),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = CharcoalSlate)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.linearGradient(gradientColors))
+                .padding(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = title.uppercase(),
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 0.5.sp
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.White.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = title,
+                            tint = Color.White,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                }
+                
+                Text(
+                    text = subtitle,
+                    color = MutedSlate.copy(alpha = 0.95f),
+                    fontSize = 10.sp,
+                    lineHeight = 13.sp,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun EmptySessionPromptGallery(onPromptSelected: (String) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(CyanPrimary.copy(alpha = 0.08f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = "Encrypted Chamber",
+                tint = CyanPrimary,
+                modifier = Modifier.size(28.dp)
+            )
+        }
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        Text(
+            text = "CHAMBER SHIELD SECURED",
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            letterSpacing = 1.sp
+        )
+        Text(
+            text = "The private memory buffer is hot-swapped & encrypted.\nSelect a prompt block from the Copilot gallery below:",
+            color = MutedSlate,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        val templates = listOf(
+            PromptTemplate(
+                title = "Security & Privacy Audit",
+                desc = "Identify possible leak points in my Kotlin SQLite configuration.",
+                prompt = "Perform a strict static code privacy audit on a typical Android Room database setup. Highlight vulnerabilities related to plaintext storing, logleak risk, and trace-free encryption."
+            ),
+            PromptTemplate(
+                title = "High-Perf SQLite Blueprint",
+                desc = "Draft optimized schema indexes to speed read latency.",
+                prompt = "Write an optimized SQLite indexes blueprint statement for an offline metrics logger tracking CPU, RAM %, and tps with high-frequency indexing."
+            ),
+            PromptTemplate(
+                title = "Copilot Slogan Architect",
+                desc = "Draft taglines highlighting on-device private model parameters.",
+                prompt = "Draft 5 catchy, minimalist, developer-oriented product taglines emphasizing complete air-gap processing, offline local weights, and absolute zero-telemetry."
+            ),
+            PromptTemplate(
+                title = "Secure Local API Handler",
+                desc = "Create a local mock API payload parser.",
+                prompt = "Design a safe Kotlin helper parsing client-side base64 binary blocks back to secure internal CSV string templates without exporting files."
+            )
+        )
+        
+        templates.forEach { tmpl ->
+            Card(
+                onClick = { onPromptSelected(tmpl.prompt) },
+                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(containerColor = CharcoalSurface),
+                border = BorderStroke(1.dp, SophisticatedOutline.copy(alpha = 0.6f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(CyanPrimary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Run",
+                            tint = CyanPrimary,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = tmpl.title,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = tmpl.desc,
+                            color = MutedSlate,
+                            fontSize = 10.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+data class PromptTemplate(
+    val title: String,
+    val desc: String,
+    val prompt: String
+)
 
 // --- SCREEN 2: Model Loader / Download Hub ---
 @Composable

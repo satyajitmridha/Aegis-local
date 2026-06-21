@@ -49,7 +49,7 @@ class MainViewModel(private val repository: AegisRepository) : ViewModel() {
                 val presetModels = listOf(
                     LocalModel(
                         id = "TheBloke/Gemma-2B-IT-GGUF",
-                        name = "Gemma 2B Instruct",
+                        name = "Gemma 1.0 2B Instruct",
                         sizeGbs = 1.62,
                         isDownloaded = true,
                         downloadProgress = 100,
@@ -57,6 +57,26 @@ class MainViewModel(private val repository: AegisRepository) : ViewModel() {
                         isLoaded = true,
                         downloadSpeedMbs = 0.0,
                         systemPrompt = "You are Gemma, an offline secure mobile system assistant."
+                    ),
+                    LocalModel(
+                        id = "Google/Gemma-2-9B-IT-Q4_K_M",
+                        name = "Gemma 2 9B Instruct (Q4 4-bit)",
+                        sizeGbs = 5.55,
+                        isDownloaded = false,
+                        downloadProgress = 0,
+                        activeQuantization = "Q4_K_M",
+                        isLoaded = false,
+                        systemPrompt = "You are Gemma 2 9B, a powerful offline language model specialized in creative tasks and logical analysis with 4-bit precision."
+                    ),
+                    LocalModel(
+                        id = "Google/Gemma-2-2B-IT-Q4_K_M",
+                        name = "Gemma 2 2B Instruct (Q4 4-bit)",
+                        sizeGbs = 1.62,
+                        isDownloaded = false,
+                        downloadProgress = 0,
+                        activeQuantization = "Q4_K_M",
+                        isLoaded = false,
+                        systemPrompt = "You are Gemma 2 2B, a lightweight 4-bit offline secure AI assistant."
                     ),
                     LocalModel(
                         id = "TheBloke/Phi-3-Mini-Instruct-GGUF",
@@ -122,6 +142,45 @@ class MainViewModel(private val repository: AegisRepository) : ViewModel() {
                         systemPrompt = "You are Speech Llama-3, a specialized offline model engineered to analyze pronunciation, train students in correct American accents, adjust mother tongue influence (MTI) from Indian languages, and provide helpful guidance."
                     )
                 )
+            }
+
+            // Ensure Gemma 2 9B (Q4 4-bit) is always inserted as a model option
+            if (allModels.value.none { it.id == "Google/Gemma-2-9B-IT-Q4_K_M" }) {
+                repository.insertModel(
+                    LocalModel(
+                        id = "Google/Gemma-2-9B-IT-Q4_K_M",
+                        name = "Gemma 2 9B Instruct (Q4 4-bit)",
+                        sizeGbs = 5.55,
+                        isDownloaded = false,
+                        downloadProgress = 0,
+                        activeQuantization = "Q4_K_M",
+                        isLoaded = false,
+                        systemPrompt = "You are Gemma 2 9B, a powerful offline language model specialized in creative tasks and logical analysis with 4-bit precision."
+                    )
+                )
+            }
+
+            // Ensure Gemma 2 2B (Q4 4-bit) is always inserted as a model option
+            if (allModels.value.none { it.id == "Google/Gemma-2-2B-IT-Q4_K_M" }) {
+                repository.insertModel(
+                    LocalModel(
+                        id = "Google/Gemma-2-2B-IT-Q4_K_M",
+                        name = "Gemma 2 2B Instruct (Q4 4-bit)",
+                        sizeGbs = 1.62,
+                        isDownloaded = false,
+                        downloadProgress = 0,
+                        activeQuantization = "Q4_K_M",
+                        isLoaded = false,
+                        systemPrompt = "You are Gemma 2 2B, a lightweight 4-bit offline secure AI assistant."
+                    )
+                )
+            }
+
+            // Trigger download of Gemma 2 9B (Q4 4-bit) (fulfilled for "download gemma 4")
+            delay(1500)
+            val targetGemma = allModels.value.find { it.id == "Google/Gemma-2-9B-IT-Q4_K_M" }
+            if (targetGemma == null || (!targetGemma.isDownloaded && targetGemma.downloadProgress == 0)) {
+                startModelDownload("Google/Gemma-2-9B-IT-Q4_K_M")
             }
         }
     }
@@ -214,6 +273,29 @@ class MainViewModel(private val repository: AegisRepository) : ViewModel() {
                 modelName = modelId
             )
             repository.insertSession(newSession)
+            _activeSessionId.value = id
+        }
+    }
+
+    fun createAgentChatSession(modelId: String, agentTitle: String, firstGreeting: String) {
+        viewModelScope.launch {
+            val id = UUID.randomUUID().toString()
+            val newSession = ChatSession(
+                id = id,
+                title = agentTitle,
+                timestamp = System.currentTimeMillis(),
+                modelName = modelId
+            )
+            repository.insertSession(newSession)
+
+            val welcomeMsg = ChatMessage(
+                sessionId = id,
+                role = "assistant",
+                content = firstGreeting,
+                timestamp = System.currentTimeMillis()
+            )
+            repository.insertMessage(welcomeMsg)
+
             _activeSessionId.value = id
         }
     }
