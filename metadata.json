@@ -1,0 +1,6 @@
+{
+  "name": "Aegis Local AI",
+  "description": "Enables completely private, offline model execution, model loading from Hugging Face, secure local chats, and multimedia processing with customizable visual metrics analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
