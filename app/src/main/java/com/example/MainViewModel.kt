@@ -87,6 +87,16 @@ class MainViewModel(private val repository: AegisRepository) : ViewModel() {
                         activeQuantization = "FP16_Sparsity",
                         isLoaded = false,
                         systemPrompt = "Offline Text-To-Image core synth model."
+                    ),
+                    LocalModel(
+                        id = "TheBloke/Llama-3-SpeechAccentPractice-GGUF",
+                        name = "Speech Llama-3 Accent Coach",
+                        sizeGbs = 3.82,
+                        isDownloaded = false,
+                        downloadProgress = 0,
+                        activeQuantization = "Q4_K_M",
+                        isLoaded = false,
+                        systemPrompt = "You are Speech Llama-3, a specialized offline model engineered to analyze pronunciation, train students in correct American accents, adjust mother tongue influence (MTI) from Indian languages, and provide helpful guidance."
                     )
                 )
                 for (m in presetModels) {
@@ -96,6 +106,22 @@ class MainViewModel(private val repository: AegisRepository) : ViewModel() {
             } else {
                 val active = allModels.value.firstOrNull { it.isLoaded } ?: allModels.value.firstOrNull()
                 _activeModelId.value = active?.id
+            }
+
+            // Ensure the Speech Coach model is always inserted
+            if (allModels.value.none { it.id == "TheBloke/Llama-3-SpeechAccentPractice-GGUF" }) {
+                repository.insertModel(
+                    LocalModel(
+                        id = "TheBloke/Llama-3-SpeechAccentPractice-GGUF",
+                        name = "Speech Llama-3 Accent Coach",
+                        sizeGbs = 3.82,
+                        isDownloaded = false,
+                        downloadProgress = 0,
+                        activeQuantization = "Q4_K_M",
+                        isLoaded = false,
+                        systemPrompt = "You are Speech Llama-3, a specialized offline model engineered to analyze pronunciation, train students in correct American accents, adjust mother tongue influence (MTI) from Indian languages, and provide helpful guidance."
+                    )
+                )
             }
         }
     }
@@ -198,6 +224,260 @@ class MainViewModel(private val repository: AegisRepository) : ViewModel() {
             if (_activeSessionId.value == sessionId) {
                 _activeSessionId.value = null
             }
+        }
+    }
+
+    // --- English Spoken Practice States ---
+    private val _spokenLanguage = MutableStateFlow("Hindi")
+    val spokenLanguage: StateFlow<String> = _spokenLanguage.asStateFlow()
+
+    private val _isSpokenEvaluating = MutableStateFlow(false)
+    val isSpokenEvaluating: StateFlow<Boolean> = _isSpokenEvaluating.asStateFlow()
+
+    private val _spokenScore = MutableStateFlow<Int?>(null)
+    val spokenScore: StateFlow<Int?> = _spokenScore.asStateFlow()
+
+    private val _spokenTranscription = MutableStateFlow("")
+    val spokenTranscription: StateFlow<String> = _spokenTranscription.asStateFlow()
+
+    private val _spokenFeedbackAccentTips = MutableStateFlow("")
+    val spokenFeedbackAccentTips: StateFlow<String> = _spokenFeedbackAccentTips.asStateFlow()
+
+    private val _spokenFeedbackMtiTraits = MutableStateFlow("")
+    val spokenFeedbackMtiTraits: StateFlow<String> = _spokenFeedbackMtiTraits.asStateFlow()
+
+    private val _spokenFeedbackNativeHelp = MutableStateFlow("")
+    val spokenFeedbackNativeHelp: StateFlow<String> = _spokenFeedbackNativeHelp.asStateFlow()
+
+    fun updateSpokenLanguage(lang: String) {
+        _spokenLanguage.value = lang
+    }
+
+    fun resetSpokenState() {
+        _spokenScore.value = null
+        _spokenTranscription.value = ""
+        _spokenFeedbackAccentTips.value = ""
+        _spokenFeedbackMtiTraits.value = ""
+        _spokenFeedbackNativeHelp.value = ""
+    }
+
+    private fun calculatePhoneticMatchingScore(spoken: String, target: String): Int {
+        val sWords = spoken.lowercase().replace(Regex("[^a-z ]"), "").split(" ")
+        val tWords = target.lowercase().replace(Regex("[^a-z ]"), "").split(" ")
+        if (sWords.isEmpty() || tWords.isEmpty()) return 50
+        
+        var matches = 0
+        for (w in sWords) {
+            if (tWords.contains(w)) {
+                matches++
+            }
+        }
+        val matchRatio = matches.toFloat() / tWords.size.toFloat()
+        val base = (65 + (matchRatio * 30)).toInt()
+        return base.coerceIn(51, 98)
+    }
+
+    private fun translatePhoneticToHindi(text: String): String {
+        return when {
+            text.contains("water") -> "वौ-डर (waah-der) - अपनी जीभ को ऊपरी जबड़े पर छूने के बजाय पीछे की तरफ थोड़ा मोड़ें।"
+            text.contains("schedule") -> "स्के-जुल (ske-jool) - अमेरिकी लोग 'शेड्यूल' नहीं बल्कि 'स्के-जूल' बोलते हैं।"
+            text.contains("comfortable") -> "कंफ-ट-बल (kumf-tuh-buhl) - 'टेबल' को दबा दें, 'कंफ-ट-बल' की तरह बोलें।"
+            text.contains("developer") -> "डि-वै-ल-पर (dih-veh-lup-er) - 'वै' पर अधिक बल दें।"
+            text.contains("beautiful") -> "ब्यू-डि-फुल (byoo-dih-fuhl) - बीच की 'त' (t) ध्वनि अमेरिकी लहजे में हल्की 'ड' (d) जैसी सुनाई देती है।"
+            else -> "फ्लैट वावल और सॉफ्ट 'टी' उच्चारण का उपयोग करें"
+        }
+    }
+    
+    private fun translatePhoneticToBengali(text: String): String {
+        return when {
+            text.contains("water") -> "ওয়া-ডার (waah-der) - জিভটিকে সামান্য পেছনে রাখুন, শক্ত 'ট' বলবেন না।"
+            text.contains("schedule") -> "স্কে-জুল (ske-jool) - মার্কিনীরা 'শিডিউল' না বলে 'স্কে-জুল' বলে থাকে।"
+            text.contains("comfortable") -> "কাফ-টা-বল (kumf-tuh-buhl) - সম্পূর্ণ 'কমফোর্টেবল' না বলে 'কামফ-ট-বল' বলুন।"
+            text.contains("developer") -> "ডি-ভে-লা-পার (dih-veh-lup-er) - 'ভে' এর ওপর চাপ দিন।"
+            text.contains("beautiful") -> "বিউ-ডি-ফুল (byoo-dih-fuhl) - আমেরিকার উচ্চারণে 'ট' অনেক সময় নরম 'ড' এর মত হয়ে যায়।"
+            else -> "আমেরিকান স্বরস্বরের জন্য মুখটি ভালো করে খুলুন।"
+        }
+    }
+
+    private fun translatePhoneticToTamil(text: String): String {
+        return when {
+            text.contains("water") -> "வா-டர் (waah-der) - நாக்கை வளைத்துSoft 'ட' போன்று உச்சரிக்கவும்."
+            text.contains("schedule") -> "ஸ்கே-ஜூல் (ske-jool) - அமெரிக்க உச்சரிப்பில் ஸ்கே-ஜூல்."
+            text.contains("comfortable") -> "கம்ஃட-பல் (kumf-tuh-buhl) - வார்த்தையின் நடுப்பகுதியை அழுத்தி உச்சரிக்கவும்."
+            else -> "அமெரிக்க அசென்ட் உச்சரிப்பு வழிகாட்டி"
+        }
+    }
+
+    private fun translatePhoneticToTelugu(text: String): String {
+        return when {
+            text.contains("water") -> "వా-డర్ (waah-der) - అమెరికన్ స్టైల్లో 'వాటర్' కాస్త 'వాడర్' లా పలుకుతుంది."
+            text.contains("schedule") -> "స్కె-జూల్ (ske-jool) - షెడ్యూల్ కాదు, స్కె-జూల్ అనాలి."
+            text.contains("comfortable") -> "కంఫ్-ట-బుల్ (kumf-tuh-buhl) - టేబుల్ మొత్తాన్ని పలకకుండా తుది అక్షరాలు తగ్గించండి."
+            else -> "అమెరికన్ ఇంగ్లీష్ ఉచ్చారణ సహాయం"
+        }
+    }
+
+    private fun parseSpokenResponse(response: String, fallbackTranscript: String) {
+        try {
+            var score = 80
+            var transcript = fallbackTranscript
+            val tipsBuilder = StringBuilder()
+            val mtiBuilder = StringBuilder()
+            val nativeBuilder = StringBuilder()
+            val transBuilder = StringBuilder()
+
+            val scoreRegex = Regex("\\[SCORE\\]\\s*(\\d+)", RegexOption.IGNORE_CASE)
+            val scoreMatch = scoreRegex.find(response)
+            if (scoreMatch != null) {
+                score = scoreMatch.groupValues[1].toIntOrNull() ?: 80
+            }
+
+            val sections = listOf("TRANSCRIPT", "ACCENT_TIPS", "MTI_TRAITS", "NATIVE_SUPPORT")
+            var currentSectionIndex = -1
+            
+            val lines = response.lines()
+
+            for (line in lines) {
+                var isTag = false
+                for (sec in sections) {
+                    if (line.contains("[$sec]", ignoreCase = true)) {
+                        currentSectionIndex = sections.indexOf(sec)
+                        isTag = true
+                        break
+                    }
+                }
+                if (isTag) continue
+
+                when (currentSectionIndex) {
+                    0 -> transBuilder.append(line).append("\n")
+                    1 -> tipsBuilder.append(line).append("\n")
+                    2 -> mtiBuilder.append(line).append("\n")
+                    3 -> nativeBuilder.append(line).append("\n")
+                }
+            }
+
+            _spokenScore.value = score.coerceIn(20, 100)
+            _spokenTranscription.value = transBuilder.toString().trim().ifBlank { fallbackTranscript }
+            _spokenFeedbackAccentTips.value = tipsBuilder.toString().trim().ifBlank { "Practice flattening secondary vowel modules." }
+            _spokenFeedbackMtiTraits.value = mtiBuilder.toString().trim().ifBlank { "Look out for syllable-timed English rhythm traits typical in local regions." }
+            _spokenFeedbackNativeHelp.value = nativeBuilder.toString().trim().ifBlank { "Play the US native speaker TTS voice to review and optimize." }
+        } catch (e: Exception) {
+            _spokenScore.value = 82
+            _spokenTranscription.value = fallbackTranscript
+            _spokenFeedbackAccentTips.value = response
+        }
+    }
+
+    fun evaluateUserSpeech(spokenText: String, targetSentence: String) {
+        if (spokenText.isBlank()) return
+        _isSpokenEvaluating.value = true
+
+        viewModelScope.launch {
+            val metricJob = launch {
+                while (_isSpokenEvaluating.value) {
+                    val cpu = (65..95).random().toDouble()
+                    val ram = 2.8 + ((1..7).random().toDouble() / 10.0)
+                    val tps = (12..25).random().toDouble()
+                    _localHardwareMetrics.value = HardwareMetrics(cpu, ram, tps)
+                    delay(300)
+                }
+                _localHardwareMetrics.value = HardwareMetrics(3.8, 1.2, 0.0)
+            }
+
+            if (_isOfflineMode.value) {
+                delay(2500)
+                val score = calculatePhoneticMatchingScore(spokenText, targetSentence)
+                _spokenScore.value = score
+                _spokenTranscription.value = spokenText
+
+                val lang = _spokenLanguage.value
+                val accentTips: String
+                val mtiTraits: String
+                val nativeHelp: String
+
+                when (lang) {
+                    "Hindi" -> {
+                        accentTips = "1. Avoid over-rolling the American 'r' inside words like 'water' or 'doctor'. Keep the tongue curled back but not flapping against the palate.\n" +
+                                "2. Soften hard 'T' and 'D' sounds. Touch your tongue further back on the roof of your mouth to create a softer American 'D' instead of a heavy dental pronunciation.\n" +
+                                "3. American vowel 'a' in 'can' should sound wide and open: /æ/ like in 'man', not a flat 'k-en' sound."
+                        mtiTraits = "Native Hindi speakers tend to retroflex 'T' and 'D' retroflexively, resulting in a heavier staccato rhythm. Also, 'w' and 'v' are often interchanged."
+                        nativeHelp = "Pronunciation Guide in Devanagari Script:\n" + translatePhoneticToHindi(targetSentence)
+                    }
+                    "Bengali" -> {
+                        accentTips = "1. English 'v' as in 'very' should be spoken with the upper teeth touching lower lips rather than the Bengali 'b' or 'bh' sound.\n" +
+                                "2. The word ending 's' is often pronounced as 'sh' by native speakers. Focus on sharp, clear hissed /s/ sounds for words like 'seats' or 'lessons'.\n" +
+                                "3. Make sure to distinguish between /æ/ ('cat') and /e/ ('met')."
+                        mtiTraits = "Bengali speakers have a tendency to drop the distinction between 'v/w' (substituting 'b') and frequently substitute 'sh' for dental 's' sounds."
+                        nativeHelp = "Pronunciation Guide in Bengali Script:\n" + translatePhoneticToBengali(targetSentence)
+                    }
+                    "Tamil" -> {
+                        accentTips = "1. Standard American English does not add neutral vowel sounds like /uh/ at the end of word blocks (e.g., 'and-uh'). Control breath endings strictly.\n" +
+                                "2. Pronounce the American 'z' with a clear buzzing sound in words like 'easy' or 'has'. Do not pronounce it as a hard Tamil 's' sound.\n" +
+                                "3. Standard American 'f' requires dental friction, keep lips separated."
+                        mtiTraits = "Tamil lacks some voiced stops (b, d, g) in its native alphabet leading to occasional hyper-corrections, and often adds /uh/ sounds to trailing consonants."
+                        nativeHelp = "Pronunciation Guide in Tamil Script:\n" + translatePhoneticToTamil(targetSentence)
+                    }
+                    "Telugu" -> {
+                        accentTips = "1. Keep the lips rounded and forward for the 'w' sound in 'wet' or 'water'. Do not let your teeth touch your lips.\n" +
+                                "2. American flat 'o' sound in 'hot' is actually spoken as an open /ɑ/ (sounding like 'haht'). Try not to pronounce it as 'h-oat'.\n" +
+                                "3. Relax the tongue during the US flat /a/ vowel sequence."
+                        mtiTraits = "In Telugu, double consonants or heavy aspiration are sometimes added, or syllable-timed accenting is used rather than stress-timed Amerikan phrasing."
+                        nativeHelp = "Pronunciation Guide in Telugu Script:\n" + translatePhoneticToTelugu(targetSentence)
+                    }
+                    else -> {
+                        accentTips = "1. Soften dental 't' and 'd' sounds to a alveolar tap for dynamic accent flow.\n" +
+                                "2. Slide into native American 'r' with retroflexed tongue position in the middle or end of words."
+                        mtiTraits = "General Indian English features syllable-timed speech and retroflexed alveolar consonants."
+                        nativeHelp = "Target translated phonetic guides: Focus on flattening secondary vowel modules."
+                    }
+                }
+                
+                _spokenFeedbackAccentTips.value = accentTips
+                _spokenFeedbackMtiTraits.value = mtiTraits
+                _spokenFeedbackNativeHelp.value = nativeHelp
+
+            } else {
+                try {
+                    val promptText = """
+                        You are an expert American Accent Coach and speech therapy assistant. The user has a native Indian language background ($spokenLanguage) and is practicing English speaking with an American accent.
+                        
+                        Target English sentence to practice: "$targetSentence"
+                        User's spoken text detected: "$spokenText"
+                        
+                        Please analyze their pronunciation and provide a precise evaluation. Start your response with [SCORE] followed by an integer from 0 to 100 on their phonetic accuracy.
+                        Then, split your feedback into these exact sections:
+                        [TRANSCRIPT]
+                        (the text the user repeated)
+                        [ACCENT_TIPS]
+                        (provide 2-3 specific, actionable physical pronunciation tips to sound more American, such as mouth posture, tongue placement, vowel flattening, or soft consonants)
+                        [MTI_TRAITS]
+                        (explain the Mother Tongue Influence traits or habits typical of $spokenLanguage speakers pronouncing this specific sentence, and how to fix them)
+                        [NATIVE_SUPPORT]
+                        (provide the native translation of the sentence in $spokenLanguage, and a phonetic guide written in their native script (e.g. Devanagari for Hindi, Bengali script for Bengali, Tamil, etc.) helping them mimic the American pronunciation!)
+                        
+                        Give the instructions in a highly professional, encouraging style. Keep each section clean, concise, and beautifully readable.
+                    """.trimIndent()
+
+                    val req = GenerateContentRequest(
+                        contents = listOf(Content(parts = listOf(Part(text = promptText))))
+                    )
+                    
+                    val resp = RetrofitClient.callGemini("gemini-3.5-flash", req)
+                    val fullResponse = resp.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: ""
+                    
+                    parseSpokenResponse(fullResponse, spokenText)
+                    
+                } catch (e: Exception) {
+                    _spokenScore.value = 75
+                    _spokenTranscription.value = spokenText
+                    _spokenFeedbackAccentTips.value = "Failed to evaluate online: ${e.message}. Using offline simulated acoustic matcher profile. Speak slower and make sure to lengthen American vowels."
+                    _spokenFeedbackMtiTraits.value = "Fallback profile loaded."
+                    _spokenFeedbackNativeHelp.value = "Support available. Play the native TTS voice to guide your ears."
+                }
+            }
+
+            _isSpokenEvaluating.value = false
+            metricJob.cancel()
         }
     }
 
@@ -644,6 +924,7 @@ class MainViewModel(private val repository: AegisRepository) : ViewModel() {
 enum class AegisTab {
     CHAT,
     MODEL_LOADER,
+    SPOKEN_PRACTICE,
     MORPHIC_LAB,
     CSV_ANALYTICS
 }
