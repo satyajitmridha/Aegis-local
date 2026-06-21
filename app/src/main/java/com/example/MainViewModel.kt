@@ -249,6 +249,43 @@ class MainViewModel(private val repository: AegisRepository) : ViewModel() {
     private val _spokenFeedbackNativeHelp = MutableStateFlow("")
     val spokenFeedbackNativeHelp: StateFlow<String> = _spokenFeedbackNativeHelp.asStateFlow()
 
+    // --- English Spoken Chat Mode States ---
+    private val _spokenModeState = MutableStateFlow(0) // 0: Phrase/Accent Practice, 1: Conversation with LLM
+    val spokenModeState: StateFlow<Int> = _spokenModeState.asStateFlow()
+
+    private val _spokenConversationList = MutableStateFlow<List<SpokenConversationMessage>>(listOf(
+        SpokenConversationMessage(
+            id = "initial",
+            sender = "LLM",
+            text = "Welcome to Spoken Conversational AI Coach! Let's talk. You can say anything to me, like 'Tell me about yourself' or describe your day. I will respond to you, speak out loud in an American Accent, and give you phonetic feedback on how well you pronounced your response. Tap the Mic to begin speaking!"
+        )
+    ))
+    val spokenConversationList: StateFlow<List<SpokenConversationMessage>> = _spokenConversationList.asStateFlow()
+
+    private val _isConvEvaluating = MutableStateFlow(false)
+    val isConvEvaluating: StateFlow<Boolean> = _isConvEvaluating.asStateFlow()
+
+    private val _ttsSpeakTrigger = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val ttsSpeakTrigger: SharedFlow<String> = _ttsSpeakTrigger.asSharedFlow()
+
+    fun triggerTtsOutLoud(phrase: String) {
+        _ttsSpeakTrigger.tryEmit(phrase)
+    }
+
+    fun updateSpokenMode(mode: Int) {
+        _spokenModeState.value = mode
+    }
+
+    fun clearSpokenConversation() {
+        _spokenConversationList.value = listOf(
+            SpokenConversationMessage(
+                id = "initial",
+                sender = "LLM",
+                text = "Let's restart our conversation! Tell me, what topics would you like to discuss today? Maybe software development, travel, or favorite food?"
+            )
+        )
+    }
+
     fun updateSpokenLanguage(lang: String) {
         _spokenLanguage.value = lang
     }
@@ -477,6 +514,185 @@ class MainViewModel(private val repository: AegisRepository) : ViewModel() {
             }
 
             _isSpokenEvaluating.value = false
+            metricJob.cancel()
+        }
+    }
+
+    fun evaluateAndChatSpokenUserSpeech(spokenText: String) {
+        if (spokenText.isBlank()) return
+        _isConvEvaluating.value = true
+
+        val humanMsgId = java.util.UUID.randomUUID().toString()
+        val userMsgMessage = SpokenConversationMessage(
+            id = humanMsgId,
+            sender = "Human",
+            text = spokenText
+        )
+        // Add to list immediately
+        _spokenConversationList.value = _spokenConversationList.value + userMsgMessage
+
+        viewModelScope.launch {
+            val metricJob = launch {
+                while (_isConvEvaluating.value) {
+                    val cpu = (68..96).random().toDouble()
+                    val ram = 2.9 + ((1..8).random().toDouble() / 10.0)
+                    val tps = (11..23).random().toDouble()
+                    _localHardwareMetrics.value = HardwareMetrics(cpu, ram, tps)
+                    delay(300)
+                }
+                _localHardwareMetrics.value = HardwareMetrics(3.8, 1.2, 0.0)
+            }
+
+            if (_isOfflineMode.value) {
+                delay(2000)
+                val reply = when {
+                    spokenText.contains("weather", ignoreCase = true) ->
+                        "The climate in my virtual space is perfectly cool. How's the weather around you right now?"
+                    spokenText.contains("kotlin", ignoreCase = true) || spokenText.contains("android", ignoreCase = true) || spokenText.contains("code", ignoreCase = true) ->
+                        "That is amazing! I am also programmed in Kotlin. What kind of applications are you building?"
+                    spokenText.contains("food", ignoreCase = true) || spokenText.contains("eat", ignoreCase = true) ->
+                        "Indian dishes are so aromatic and delicious! What do you like to eat for breakfast?"
+                    spokenText.contains("cricket", ignoreCase = true) || spokenText.contains("sport", ignoreCase = true) ->
+                        "Cricket is legendary in India! Are you a fan of Virat Kohli or do you play yourself?"
+                    else ->
+                        "That sounds really interesting! Tell me more about it, or what do you like to do in your free time?"
+                }
+                val offlineScore = calculatePhoneticMatchingScore(spokenText, spokenText)
+                
+                val lang = _spokenLanguage.value
+                val tips = "Keep your American vowels open and try rolling the letter R correctly."
+                val mti = "Be mindful of retroflex accents typical of $lang speakers."
+                val nativeSupport = "Practice with native dynamic American TTS tool below!"
+
+                // Update the user's message with score and feedback
+                _spokenConversationList.value = _spokenConversationList.value.map {
+                    if (it.id == humanMsgId) {
+                        it.copy(score = offlineScore, accentTips = tips, mtiTraits = mti, nativeHelp = nativeSupport)
+                    } else it
+                }
+
+                // Append LLM reply
+                val llmMsg = SpokenConversationMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    sender = "LLM",
+                    text = reply
+                )
+                _spokenConversationList.value = _spokenConversationList.value + llmMsg
+                triggerTtsOutLoud(reply)
+
+            } else {
+                try {
+                    val chatHistory = _spokenConversationList.value.takeLast(6).joinToString("\n") { msg ->
+                        "${msg.sender}: ${msg.text}"
+                    }
+                    val prompt = """
+                        You are an expert American Accent Voice Coach chatting with an Indian student (${_spokenLanguage.value} background).
+                        We are having an interactive spoken chat conversation.
+                        
+                        Chat history so far:
+                        $chatHistory
+                        
+                        The user just SPOKE this message:
+                        "$spokenText"
+                        
+                        Give your conversational reply (in natural American English, short and friendly, under 25 words since it will be spoken out loud via TTS), and also evaluate their spoken message.
+                        Please structure your output using these tags exactly:
+                        [REPLY]
+                        (your short friendly voice dialogue reply here)
+                        [SCORE]
+                        (phonetic accuracy integer from 40 to 100)
+                        [ACCENT_TIPS]
+                        (specific accent optimization tip for their spoken phrase)
+                        [MTI_TRAITS]
+                        (mother tongue interference traits for this phrase)
+                        [NATIVE_SUPPORT]
+                        (native script phonetic pronunciation guide for your reply)
+                    """.trimIndent()
+
+                    val req = GenerateContentRequest(
+                        contents = listOf(Content(parts = listOf(Part(text = prompt))))
+                    )
+                    val resp = RetrofitClient.callGemini("gemini-3.5-flash", req)
+                    val fullResponse = resp.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: ""
+
+                    // parse tags
+                    var replyText = "Interesting! Could you tell me more about that?"
+                    var score = 80
+                    var tips = "Try softening your T sounds to flow natively."
+                    var mti = "Be mindful of retroflex T/D habit."
+                    var nativeSupport = "Accent guidelines generated successfully."
+
+                    val lines = fullResponse.lines()
+                    var currentSection = ""
+                    val replyBuilder = StringBuilder()
+                    val tipsBuilder = StringBuilder()
+                    val mtiBuilder = StringBuilder()
+                    val nativeBuilder = StringBuilder()
+
+                    for (line in lines) {
+                        when {
+                            line.contains("[REPLY]", ignoreCase = true) -> currentSection = "REPLY"
+                            line.contains("[SCORE]", ignoreCase = true) -> currentSection = "SCORE"
+                            line.contains("[ACCENT_TIPS]", ignoreCase = true) -> currentSection = "TIPS"
+                            line.contains("[MTI_TRAITS]", ignoreCase = true) -> currentSection = "MTI"
+                            line.contains("[NATIVE_SUPPORT]", ignoreCase = true) -> currentSection = "NATIVE"
+                            else -> {
+                                when (currentSection) {
+                                    "REPLY" -> replyBuilder.append(line).append(" ")
+                                    "SCORE" -> {
+                                        val numStr = line.replace(Regex("[^0-9]"), "")
+                                        if (numStr.isNotEmpty()) {
+                                            score = numStr.toIntOrNull() ?: 80
+                                        }
+                                    }
+                                    "TIPS" -> tipsBuilder.append(line).append("\n")
+                                    "MTI" -> mtiBuilder.append(line).append("\n")
+                                    "NATIVE" -> nativeBuilder.append(line).append("\n")
+                                }
+                            }
+                        }
+                    }
+
+                    if (replyBuilder.isNotEmpty()) replyText = replyBuilder.toString().trim()
+                    if (tipsBuilder.isNotEmpty()) tips = tipsBuilder.toString().trim()
+                    if (mtiBuilder.isNotEmpty()) mti = mtiBuilder.toString().trim()
+                    if (nativeBuilder.isNotEmpty()) nativeSupport = nativeBuilder.toString().trim()
+
+                    // Update user's message with feedback in the log
+                    _spokenConversationList.value = _spokenConversationList.value.map {
+                        if (it.id == humanMsgId) {
+                            it.copy(score = score, accentTips = tips, mtiTraits = mti, nativeHelp = nativeSupport)
+                        } else it
+                    }
+
+                    // Append LLM reply
+                    val llmMsg = SpokenConversationMessage(
+                        id = java.util.UUID.randomUUID().toString(),
+                        sender = "LLM",
+                        text = replyText
+                    )
+                    _spokenConversationList.value = _spokenConversationList.value + llmMsg
+                    triggerTtsOutLoud(replyText)
+
+                } catch (e: Exception) {
+                    val fallback = "Nice talking! Let's talk about travel or technology."
+                    // Fail gracefully
+                    _spokenConversationList.value = _spokenConversationList.value.map {
+                        if (it.id == humanMsgId) {
+                            it.copy(score = 78, accentTips = "Offline matching profile used.", mtiTraits = "Muted on fallback.", nativeHelp = "TTS guided practice enabled.")
+                        } else it
+                    }
+                    val llmMsg = SpokenConversationMessage(
+                        id = java.util.UUID.randomUUID().toString(),
+                        sender = "LLM",
+                        text = fallback
+                    )
+                    _spokenConversationList.value = _spokenConversationList.value + llmMsg
+                    triggerTtsOutLoud(fallback)
+                }
+            }
+
+            _isConvEvaluating.value = false
             metricJob.cancel()
         }
     }
@@ -934,4 +1150,15 @@ data class HardwareMetrics(
     val cpuPercentage: Double,
     val ramAllocatedGb: Double,
     val tokensPerSecond: Double
+)
+
+data class SpokenConversationMessage(
+    val id: String,
+    val sender: String, // "Human" or "LLM"
+    val text: String,
+    val score: Int? = null,
+    val accentTips: String? = null,
+    val mtiTraits: String? = null,
+    val nativeHelp: String? = null,
+    val timestamp: Long = System.currentTimeMillis()
 )

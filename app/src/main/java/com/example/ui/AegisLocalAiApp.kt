@@ -1789,6 +1789,11 @@ fun SpokenPracticeScreen(viewModel: MainViewModel) {
     val mtiTraits by viewModel.spokenFeedbackMtiTraits.collectAsStateWithLifecycle()
     val nativeHelp by viewModel.spokenFeedbackNativeHelp.collectAsStateWithLifecycle()
 
+    // Conversational Spoken States
+    val currentMode by viewModel.spokenModeState.collectAsStateWithLifecycle()
+    val conversation by viewModel.spokenConversationList.collectAsStateWithLifecycle()
+    val isConvEvaluating by viewModel.isConvEvaluating.collectAsStateWithLifecycle()
+
     val targetModelId = "TheBloke/Llama-3-SpeechAccentPractice-GGUF"
     val speechModel = allModels.find { it.id == targetModelId }
     val isModelDownloaded = speechModel?.isDownloaded == true
@@ -1817,6 +1822,19 @@ fun SpokenPracticeScreen(viewModel: MainViewModel) {
         onDispose {
             ttsEngine.stop()
             ttsEngine.shutdown()
+        }
+    }
+
+    // TTS speaker SharedFlow connector
+    val ttsTrigger by viewModel.ttsSpeakTrigger.collectAsStateWithLifecycle(initialValue = "")
+    LaunchedEffect(ttsTrigger) {
+        if (ttsTrigger.isNotBlank()) {
+            tts?.speak(
+                ttsTrigger,
+                android.speech.tts.TextToSpeech.QUEUE_FLUSH,
+                null,
+                null
+            )
         }
     }
 
@@ -1861,11 +1879,52 @@ fun SpokenPracticeScreen(viewModel: MainViewModel) {
         }
     }
 
+    fun startGoogleVoiceConversationalListening() {
+        try {
+            val recognizer = android.speech.SpeechRecognizer.createSpeechRecognizer(context)
+            val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "en-US")
+                putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Talk to LLM Coach: Say anything!")
+            }
+            recognizer.setRecognitionListener(object : android.speech.RecognitionListener {
+                override fun onReadyForSpeech(params: android.os.Bundle?) { isListening = true }
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() { isListening = false }
+                override fun onError(error: Int) {
+                    isListening = false
+                    recognizer.destroy()
+                }
+                override fun onResults(results: android.os.Bundle?) {
+                    isListening = false
+                    val matches = results?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)
+                    val spokenText = matches?.firstOrNull() ?: ""
+                    if (spokenText.isNotBlank()) {
+                        viewModel.evaluateAndChatSpokenUserSpeech(spokenText)
+                    }
+                    recognizer.destroy()
+                }
+                override fun onPartialResults(partialResults: android.os.Bundle?) {}
+                override fun onEvent(eventType: Int, params: android.os.Bundle?) {}
+            })
+            speechRecognizer = recognizer
+            recognizer.startListening(intent)
+        } catch (e: Exception) {
+            isListening = false
+        }
+    }
+
     val recordPermissionLauncher = rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            startGoogleVoiceListening()
+            if (currentMode == 0) {
+                startGoogleVoiceListening()
+            } else {
+                startGoogleVoiceConversationalListening()
+            }
         }
     }
 
@@ -2014,6 +2073,7 @@ fun SpokenPracticeScreen(viewModel: MainViewModel) {
                 }
             }
         } else {
+            // MAIN VIEWPORT WHEN LOADED
             item {
                 // MODEL IS LOADED STATUS
                 Card(
@@ -2026,7 +2086,7 @@ fun SpokenPracticeScreen(viewModel: MainViewModel) {
                     border = BorderStroke(1.dp, SophisticatedOutline),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp),
+                        .padding(vertical = 4.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(
@@ -2041,7 +2101,7 @@ fun SpokenPracticeScreen(viewModel: MainViewModel) {
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Model Loaded: Speech Llama-3 Accent Coach (3.82 GB)",
+                            text = "Model Loaded: Llama-3 Accent Coach (3.82 GB)",
                             color = AlertGreen,
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace
@@ -2051,7 +2111,7 @@ fun SpokenPracticeScreen(viewModel: MainViewModel) {
             }
 
             item {
-                // PARAMETERS SELECTION (Target sentence & Dialect translator)
+                // PARAMETERS SELECTION (Native background region selector)
                 Card(
                     colors = CardColors(
                         containerColor = CharcoalSlate,
@@ -2062,18 +2122,18 @@ fun SpokenPracticeScreen(viewModel: MainViewModel) {
                     border = BorderStroke(1.dp, SophisticatedOutline),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp),
+                        .padding(vertical = 4.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            text = "1. Indian Language Support Background",
+                            text = "Native Accent Environment Background:",
                             color = CyanPrimary,
-                            fontSize = 14.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = FontFamily.Monospace
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         
                         // Select Native Region language
                         val indianLangs = listOf("Hindi", "Bengali", "Tamil", "Telugu")
@@ -2086,7 +2146,7 @@ fun SpokenPracticeScreen(viewModel: MainViewModel) {
                                 FilterChip(
                                     selected = isSel,
                                     onClick = { viewModel.updateSpokenLanguage(lang) },
-                                    label = { Text(lang) },
+                                    label = { Text(lang, fontSize = 11.sp) },
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = DeepPurpleContainer,
                                         selectedLabelColor = CyanPrimary,
@@ -2098,178 +2158,726 @@ fun SpokenPracticeScreen(viewModel: MainViewModel) {
                                         selected = isSel,
                                         borderColor = if (isSel) CyanPrimary else SophisticatedOutline
                                     ),
-                                    modifier = Modifier.testTag("lang_chip_$lang")
+                                    modifier = Modifier.testTag("lang_chip_$lang").height(28.dp)
                                 )
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Text(
-                            text = "2. Select target English sentence to practice",
-                            color = CyanPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            challengingPhrases.forEachIndexed { idx, ph ->
-                                val isPhraseSel = activePhraseIndex == idx && customTargetText.isBlank()
-                                Card(
-                                    onClick = {
-                                        customTargetText = ""
-                                        activePhraseIndex = idx
-                                        viewModel.resetSpokenState()
-                                    },
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isPhraseSel) CharcoalSurface else CharcoalDark
-                                    ),
-                                    border = BorderStroke(
-                                        width = 1.dp,
-                                        color = if (isPhraseSel) CyanPrimary else SophisticatedOutline
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = ph,
-                                        color = if (isPhraseSel) Color.White else MutedSlate,
-                                        fontSize = 13.sp,
-                                        modifier = Modifier.padding(12.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(text = "Or enter your own custom phrase below:", color = MutedSlate, fontSize = 12.sp)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        OutlinedTextField(
-                            value = customTargetText,
-                            onValueChange = {
-                                customTargetText = it
-                                viewModel.resetSpokenState()
-                            },
-                            placeholder = { Text("Type any custom English phrase to practice...", color = MutedSlate, fontSize = 13.sp) },
-                            textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 13.sp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
-                                .testTag("custom_phrase_input"),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = CyanPrimary,
-                                unfocusedBorderColor = SophisticatedOutline,
-                                focusedContainerColor = CharcoalDark,
-                                unfocusedContainerColor = CharcoalDark
-                            ),
-                            singleLine = true
-                        )
                     }
                 }
             }
 
             item {
-                // COACHING WORKSPACE (Target sentence visualization & Listen / Record actions)
-                Card(
-                    colors = CardColors(
-                        containerColor = CharcoalSlate,
-                        contentColor = Color.White,
-                        disabledContainerColor = CharcoalSlate,
-                        disabledContentColor = Color.White
-                    ),
-                    border = BorderStroke(1.dp, SophisticatedOutline),
+                // INTERACTIVE TAB SELECTOR (1: PRACTISE WORDS, 2: CONVERSATION TRAINER)
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 8.dp),
-                    shape = RoundedCornerShape(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Card(
+                        onClick = { viewModel.updateSpokenMode(0) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .testTag("practice_tab_btn"),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (currentMode == 0) DeepPurpleContainer else CharcoalSlate
+                        ),
+                        border = BorderStroke(1.dp, if (currentMode == 0) CyanPrimary else SophisticatedOutline)
                     ) {
-                        Text(
-                            text = "COACHING WORKSPACE",
-                            color = MutedSlate,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Large Display Target
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(CharcoalDark)
-                                .border(BorderStroke(1.dp, SophisticatedOutline))
-                                .padding(16.dp)
-                        ) {
-                            Column {
-                                Text(
-                                    text = finalTargetSentence,
-                                    color = Color.White,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.fillMaxWidth()
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.List,
+                                    contentDescription = "Practice Cards",
+                                    tint = if (currentMode == 0) CyanPrimary else MutedSlate,
+                                    modifier = Modifier.size(16.dp)
                                 )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                
-                                // TTS Listen out loud trigger
-                                Button(
-                                    onClick = {
-                                        tts?.speak(
-                                            finalTargetSentence,
-                                            android.speech.tts.TextToSpeech.QUEUE_FLUSH,
-                                            null,
-                                            null
-                                        )
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
-                                    modifier = Modifier
-                                        .align(Alignment.CenterHorizontally)
-                                        .height(36.dp)
-                                        .testTag("listen_american_btn")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = "Speaker",
-                                        tint = CyanPrimary,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Listen with American Accent",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        if (isEvaluating) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                AegisProgressIndicator(color = CyanPrimary, size = 32.dp)
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Analyzing Pronunciation Phonemes...",
-                                    color = CyanPrimary,
+                                    text = "Practice Phrases",
+                                    color = if (currentMode == 0) Color.White else MutedSlate,
                                     fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
-                        } else {
+                        }
+                    }
+
+                    Card(
+                        onClick = { viewModel.updateSpokenMode(1) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .testTag("conversation_tab_btn"),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (currentMode == 1) DeepPurpleContainer else CharcoalSlate
+                        ),
+                        border = BorderStroke(1.dp, if (currentMode == 1) CyanPrimary else SophisticatedOutline)
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Share, 
+                                    contentDescription = "AI spoken conversation",
+                                    tint = if (currentMode == 1) CyanPrimary else MutedSlate,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Talk to LLM Coach",
+                                    color = if (currentMode == 1) Color.White else MutedSlate,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (currentMode == 0) {
+                // ================= PRACTICE PHRASES MODE (TAB 0) =================
+                item {
+                    Card(
+                        colors = CardColors(
+                            containerColor = CharcoalSlate,
+                            contentColor = Color.White,
+                            disabledContainerColor = CharcoalSlate,
+                            disabledContentColor = Color.White
+                        ),
+                        border = BorderStroke(1.dp, SophisticatedOutline),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Select target sentence to practice",
+                                color = CyanPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                challengingPhrases.forEachIndexed { idx, ph ->
+                                    val isPhraseSel = activePhraseIndex == idx && customTargetText.isBlank()
+                                    Card(
+                                        onClick = {
+                                            customTargetText = ""
+                                            activePhraseIndex = idx
+                                            viewModel.resetSpokenState()
+                                        },
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isPhraseSel) CharcoalSurface else CharcoalDark
+                                        ),
+                                        border = BorderStroke(
+                                            width = 1.dp,
+                                            color = if (isPhraseSel) CyanPrimary else SophisticatedOutline
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = ph,
+                                            color = if (isPhraseSel) Color.White else MutedSlate,
+                                            fontSize = 13.sp,
+                                            modifier = Modifier.padding(12.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(text = "Or enter your own custom phrase below:", color = MutedSlate, fontSize = 11.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = customTargetText,
+                                onValueChange = {
+                                    customTargetText = it
+                                    viewModel.resetSpokenState()
+                                },
+                                placeholder = { Text("Type any custom English phrase to practice...", color = MutedSlate, fontSize = 13.sp) },
+                                textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 13.sp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp)
+                                    .testTag("custom_phrase_input"),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = CyanPrimary,
+                                    unfocusedBorderColor = SophisticatedOutline,
+                                    focusedContainerColor = CharcoalDark,
+                                    unfocusedContainerColor = CharcoalDark
+                                ),
+                                singleLine = true
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    // COACHING WORKSPACE
+                    Card(
+                        colors = CardColors(
+                            containerColor = CharcoalSlate,
+                            contentColor = Color.White,
+                            disabledContainerColor = CharcoalSlate,
+                            disabledContentColor = Color.White
+                        ),
+                        border = BorderStroke(1.dp, SophisticatedOutline),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "COACHING WORKSPACE",
+                                color = MutedSlate,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(CharcoalDark)
+                                    .border(BorderStroke(1.dp, SophisticatedOutline))
+                                    .padding(16.dp)
+                            ) {
+                                Column {
+                                    Text(
+                                        text = finalTargetSentence,
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    
+                                    Button(
+                                        onClick = {
+                                            tts?.speak(
+                                                finalTargetSentence,
+                                                android.speech.tts.TextToSpeech.QUEUE_FLUSH,
+                                                null,
+                                                null
+                                            )
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
+                                        modifier = Modifier
+                                            .align(Alignment.CenterHorizontally)
+                                            .height(36.dp)
+                                            .testTag("listen_american_btn")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = "Speaker",
+                                            tint = CyanPrimary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Listen with American Accent",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(20.dp))
+
+                            if (isEvaluating) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    AegisProgressIndicator(color = CyanPrimary, size = 32.dp)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Analyzing Pronunciation Phonemes...",
+                                        color = CyanPrimary,
+                                        fontSize = 12.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            } else {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceAround,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        IconButton(
+                                            onClick = {
+                                                if (isListening) {
+                                                    stopListening()
+                                                } else {
+                                                    recordPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .size(64.dp)
+                                                .clip(RoundedCornerShape(32.dp))
+                                                .background(if (isListening) AlertGreen else DeepPurpleContainer)
+                                                .testTag("mic_recording_btn")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Share, 
+                                                contentDescription = "Microphone",
+                                                tint = if (isListening) CharcoalDark else Color.White,
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = if (isListening) "Listening..." else "Tap to Speak",
+                                            color = if (isListening) AlertGreen else Color.White,
+                                            fontSize = 12.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                if (isListening) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        repeat(6) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(4.dp)
+                                                    .height((12..36).random().dp)
+                                                    .background(AlertGreen, RoundedCornerShape(2.dp))
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(24.dp))
+                                Spacer(modifier = Modifier.fillMaxWidth().height(1.dp).background(SophisticatedOutline))
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "Emulator Voice Simulator Options:",
+                                    color = MutedSlate,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            val accentedText = when {
+                                                finalTargetSentence.contains("water") -> "Can I get a baht-al of vaa-ter, plees."
+                                                finalTargetSentence.contains("schedule") -> "My workday she-dule is extremely comfortable."
+                                                finalTargetSentence.contains("developer") -> "I am an offline Android software devel-opar."
+                                                else -> "I am repeating the complete English text with heavy native accent."
+                                            }
+                                            viewModel.evaluateUserSpeech(accentedText, finalTargetSentence)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(36.dp)
+                                            .testTag("sim_heavy_accent_btn")
+                                    ) {
+                                        Text("Heavy Indian Accent", fontSize = 10.sp, color = MutedSlate)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            viewModel.evaluateUserSpeech(finalTargetSentence, finalTargetSentence)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(36.dp)
+                                            .testTag("sim_american_accent_btn")
+                                    ) {
+                                        Text("American Accent Flow", fontSize = 10.sp, color = AlertGreen)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (score != null) {
+                    item {
+                        Card(
+                            colors = CardColors(
+                                containerColor = CharcoalSlate,
+                                contentColor = Color.White,
+                                disabledContainerColor = CharcoalSlate,
+                                disabledContentColor = Color.White
+                            ),
+                            border = BorderStroke(1.dp, SophisticatedOutline),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp)
+                                .testTag("evaluation_card"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "Phonetic Score Card",
+                                            color = CyanPrimary,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Text(
+                                            text = "Pragmatic US Accent Alignment",
+                                            color = MutedSlate,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.size(60.dp)
+                                    ) {
+                                        val scoreVal = score ?: 70
+                                        val arcColor = if (scoreVal >= 85) AlertGreen else if (scoreVal >= 70) CyanPrimary else Color(0xFFFF5252)
+                                        CircularProgressIndicator(
+                                            progress = scoreVal.toFloat() / 100f,
+                                            color = arcColor,
+                                            trackColor = CharcoalSurface,
+                                            modifier = Modifier.fillMaxSize(),
+                                            strokeWidth = 5.dp
+                                        )
+                                        Text(
+                                            text = "$scoreVal%",
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Spacer(modifier = Modifier.fillMaxWidth().height(1.dp).background(SophisticatedOutline))
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Text(
+                                    text = "What We Heard:",
+                                    color = MutedSlate,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "\"$transcription\"",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontStyle = FontStyle.Italic
+                                )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = DeepPurpleContainer.copy(alpha = 0.4f)),
+                                    border = BorderStroke(1.dp, CyanPrimary.copy(alpha = 0.3f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text(
+                                            text = "🇮🇳 Native Script Phonics Helper ($spokenLanguage background):",
+                                            color = CyanPrimary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = nativeHelp,
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            lineHeight = 18.sp
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Text(
+                                    text = "American Accent Speech Therapy Tips:",
+                                    color = CyanPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = accentTips,
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp
+                                )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Text(
+                                    text = "${spokenLanguage} MTI Trait Adjustments:",
+                                    color = CyanPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = mtiTraits,
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                // ================= INTERACTIVE SPOKEN VOICE CONVERSATION MODE (TAB 1) =================
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = CharcoalSlate),
+                        border = BorderStroke(1.dp, SophisticatedOutline),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(RoundedCornerShape(5.dp))
+                                    .background(CyanPrimary)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Speak back and forth with your AI Buddy. Have a spontaneous, safe conversation!",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+
+                // Loop through dialogue history within LazyColumn loop reliably
+                conversation.forEach { msg ->
+                    item {
+                        val isUser = msg.sender == "Human"
+                        
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(0.9f),
+                                horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                if (!isUser) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(DeepPurpleContainer),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("AI", color = CyanPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isUser) DeepPurpleContainer else CharcoalSlate
+                                    ),
+                                    border = BorderStroke(
+                                        width = 1.dp,
+                                        color = if (isUser) CyanPrimary else SophisticatedOutline
+                                    ),
+                                    shape = RoundedCornerShape(
+                                        topStart = 16.dp,
+                                        topEnd = 16.dp,
+                                        bottomStart = if (isUser) 16.dp else 2.dp,
+                                        bottomEnd = if (isUser) 2.dp else 16.dp
+                                    ),
+                                    modifier = Modifier.weight(1f, fill = false)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text(
+                                            text = msg.text,
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            lineHeight = 18.sp
+                                        )
+                                        
+                                        if (!isUser) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                IconButton(
+                                                    onClick = {
+                                                        tts?.speak(msg.text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, null)
+                                                    },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.PlayArrow,
+                                                        contentDescription = "Read out loud",
+                                                        tint = AlertGreen,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                                Text("Listen to Buddy", color = AlertGreen, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                                            }
+                                        }
+
+                                        // DISPLAY USER SPEECH RESULTS DIRECTLY UNDER BUBBLE!
+                                        if (isUser && msg.score != null) {
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Spacer(modifier = Modifier.fillMaxWidth().height(1.dp).background(CyanPrimary.copy(alpha = 0.3f)))
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .background(if ((msg.score ?: 70) >= 80) AlertGreen else CyanPrimary)
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Pronunciation Match: ${msg.score}%",
+                                                        color = CharcoalDark,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                }
+                                            }
+
+                                            if (!msg.accentTips.isNullOrBlank()) {
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text("🗣️ American Accent Help:", color = CyanPrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                Text(msg.accentTips ?: "", color = MutedSlate, fontSize = 11.sp, lineHeight = 15.sp)
+                                            }
+
+                                            if (!msg.mtiTraits.isNullOrBlank()) {
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text("🇮🇳 MTI Adjustments:", color = CyanPrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                Text(msg.mtiTraits ?: "", color = MutedSlate, fontSize = 11.sp, lineHeight = 15.sp)
+                                            }
+
+                                            if (!msg.nativeHelp.isNullOrBlank()) {
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text("📖 Local Phonic Script Helper:", color = CyanPrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                Text(msg.nativeHelp ?: "", color = Color.White, fontSize = 11.sp, lineHeight = 15.sp)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (isUser) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(CharcoalSurface),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("ME", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (isConvEvaluating) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            AegisProgressIndicator(color = CyanPrimary, size = 28.dp)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Phoneme analysis & coach is thinking...",
+                                color = CyanPrimary,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    // CONVERSATIONAL DOCK CONTROLLERS
+                    Card(
+                        colors = CardColors(
+                            containerColor = CharcoalSlate,
+                            contentColor = Color.White,
+                            disabledContainerColor = CharcoalSlate,
+                            disabledContentColor = Color.White
+                        ),
+                        border = BorderStroke(1.dp, SophisticatedOutline),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "CONVERSATION PANEL",
+                                color = MutedSlate,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Mic Button
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceAround,
+                                horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // MIC BUTTON
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     IconButton(
                                         onClick = {
@@ -2283,18 +2891,18 @@ fun SpokenPracticeScreen(viewModel: MainViewModel) {
                                             .size(64.dp)
                                             .clip(RoundedCornerShape(32.dp))
                                             .background(if (isListening) AlertGreen else DeepPurpleContainer)
-                                            .testTag("mic_recording_btn")
+                                            .testTag("conversation_mic_btn")
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Share, // standard robust placeholder
-                                            contentDescription = "Microphone",
+                                            imageVector = Icons.Default.Share, 
+                                            contentDescription = "Speak to Buddy",
                                             tint = if (isListening) CharcoalDark else Color.White,
                                             modifier = Modifier.size(28.dp)
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
-                                        text = if (isListening) "Listening..." else "Tap to Speak",
+                                        text = if (isListening) "Mic Active (Speak)..." else "Tap Mic & Speak",
                                         color = if (isListening) AlertGreen else Color.White,
                                         fontSize = 12.sp,
                                         fontFamily = FontFamily.Monospace,
@@ -2303,220 +2911,123 @@ fun SpokenPracticeScreen(viewModel: MainViewModel) {
                                 }
                             }
 
-                            // Dynamic Visual wave simulation during live listening
                             if (isListening) {
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    repeat(6) {
+                                    repeat(8) {
                                         Box(
                                             modifier = Modifier
                                                 .width(4.dp)
-                                                .height((12..36).random().dp)
+                                                .height((10..38).random().dp)
                                                 .background(AlertGreen, RoundedCornerShape(2.dp))
                                         )
                                     }
                                 }
                             }
 
-                            // EMULATOR VOICE SIMULATOR KEYPAD
-                            Spacer(modifier = Modifier.height(24.dp))
+                            Spacer(modifier = Modifier.height(16.dp))
                             Spacer(modifier = Modifier.fillMaxWidth().height(1.dp).background(SophisticatedOutline))
                             Spacer(modifier = Modifier.height(12.dp))
+
+                            // Quick Dialogue Starters
                             Text(
-                                text = "Emulator Voice Simulator Options:",
+                                text = "💡 Skip talking & test conversation topics:",
                                 color = MutedSlate,
                                 fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.align(Alignment.Start)
                             )
                             Spacer(modifier = Modifier.height(8.dp))
+                            
+                            val conversationStarters = listOf(
+                                "How has your day been?",
+                                "What is the secret to a great accent?",
+                                "Tell me a joke about robots."
+                            )
+
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                conversationStarters.forEach { suggestion ->
+                                    Card(
+                                        onClick = {
+                                            viewModel.evaluateAndChatSpokenUserSpeech(suggestion)
+                                        },
+                                        colors = CardDefaults.cardColors(containerColor = CharcoalDark),
+                                        border = BorderStroke(1.dp, SophisticatedOutline),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = "🗣️ \"$suggestion\"",
+                                            color = CyanPrimary,
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.padding(10.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // Dialogue Simulation controllers
+                            Text(
+                                text = "🤖 Emulator Dialect Accent Simulator:",
+                                color = MutedSlate,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.align(Alignment.Start)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Button(
                                     onClick = {
-                                        // simulate heavy Indian Accent
-                                        val accentedText = when {
-                                            finalTargetSentence.contains("water") -> "Can I get a baht-al of vaa-ter, plees."
-                                            finalTargetSentence.contains("schedule") -> "My workday she-dule is extremely comfortable."
-                                            finalTargetSentence.contains("developer") -> "I am an offline Android software devel-opar."
-                                            else -> "I am repeating the complete English text with heavy native accent."
-                                        }
-                                        viewModel.evaluateUserSpeech(accentedText, finalTargetSentence)
+                                        val accentedPhrase = "I like building mobile android software devel-opar."
+                                        viewModel.evaluateAndChatSpokenUserSpeech(accentedPhrase)
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(36.dp)
-                                        .testTag("sim_heavy_accent_btn")
+                                        .height(38.dp)
+                                        .testTag("sim_heavy_indian_spoken_chat")
                                 ) {
                                     Text("Heavy Indian Accent", fontSize = 10.sp, color = MutedSlate)
                                 }
 
                                 Button(
                                     onClick = {
-                                        // simulate clear American Accent
-                                        viewModel.evaluateUserSpeech(finalTargetSentence, finalTargetSentence)
+                                        val perfectPhrase = "I am practicing my spontaneous conversational English daily."
+                                        viewModel.evaluateAndChatSpokenUserSpeech(perfectPhrase)
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(36.dp)
-                                        .testTag("sim_american_accent_btn")
+                                        .height(38.dp)
+                                        .testTag("sim_perfect_american_spoken_chat")
                                 ) {
                                     Text("American Accent Flow", fontSize = 10.sp, color = AlertGreen)
                                 }
                             }
-                        }
-                    }
-                }
-            }
 
-            if (score != null) {
-                item {
-                    // EVALUATION CARD (Visual score + tips cards)
-                    Card(
-                        colors = CardColors(
-                            containerColor = CharcoalSlate,
-                            contentColor = Color.White,
-                            disabledContainerColor = CharcoalSlate,
-                            disabledContentColor = Color.White
-                        ),
-                        border = BorderStroke(1.dp, SophisticatedOutline),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp)
-                            .testTag("evaluation_card"),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            // Circular alignment and score visualizer
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // Reset Chat History
+                            Button(
+                                onClick = { viewModel.clearSpokenConversation() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FF5252)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(36.dp)
+                                    .testTag("reset_spoken_chat_btn")
                             ) {
-                                Column {
-                                    Text(
-                                        text = "Phonetic Score Card",
-                                        color = CyanPrimary,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                    Text(
-                                        text = "Pragmatic US Accent Alignment",
-                                        color = MutedSlate,
-                                        fontSize = 11.sp
-                                    )
-                                }
-
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier.size(60.dp)
-                                ) {
-                                    val scoreVal = score ?: 70
-                                    val arcColor = if (scoreVal >= 85) AlertGreen else if (scoreVal >= 70) CyanPrimary else Color(0xFFFF5252)
-                                    CircularProgressIndicator(
-                                        progress = scoreVal.toFloat() / 100f,
-                                        color = arcColor,
-                                        trackColor = CharcoalSurface,
-                                        modifier = Modifier.fillMaxSize(),
-                                        strokeWidth = 5.dp
-                                    )
-                                    Text(
-                                        text = "$scoreVal%",
-                                        color = Color.White,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
+                                Icon(Icons.Default.Delete, contentDescription = "Clear Conversation", tint = Color(0xFFFF5252), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Restart Spoken Conversation", color = Color(0xFFFF5252), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                             }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Spacer(modifier = Modifier.fillMaxWidth().height(1.dp).background(SophisticatedOutline))
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // 1. Transcription Panel
-                            Text(
-                                text = "What We Heard:",
-                                color = MutedSlate,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "\"$transcription\"",
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontStyle = FontStyle.Italic
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            // 2. Devanagari/Script Pronunciation Matcher (Indian script help)
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = DeepPurpleContainer.copy(alpha = 0.4f)),
-                                border = BorderStroke(1.dp, CyanPrimary.copy(alpha = 0.3f)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(
-                                        text = "🇮🇳 Native Script Phonics Helper ($spokenLanguage background):",
-                                        color = CyanPrimary,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = nativeHelp,
-                                        color = Color.White,
-                                        fontSize = 13.sp,
-                                        lineHeight = 18.sp
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            // 3. Accent Coaching Tips
-                            Text(
-                                text = "American Accent Speech Therapy Tips:",
-                                color = CyanPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = accentTips,
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                lineHeight = 18.sp
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            // 4. MTI Analysis
-                            Text(
-                                text = "${spokenLanguage} MTI Trait Adjustments:",
-                                color = CyanPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = mtiTraits,
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                lineHeight = 18.sp
-                            )
                         }
                     }
                 }
